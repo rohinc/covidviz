@@ -1,0 +1,257 @@
+---
+title: 'Assignment 1: Data Visualisation'
+author: "Rohin Chhabra"
+date: "04/04/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r packages, include=FALSE}
+#load packages
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(plotly)
+library(rworldmap)
+library(ggrepel)
+library(heatmaply)
+```
+
+```{r setup, include=FALSE}
+#read in data
+knitr::opts_chunk$set(echo = TRUE)
+covid <- read.csv('https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv')
+```
+
+## About the Data
+
+The COVID-19 dataset used for this report has been collected from 'Our World in Data', a non-profit organisation providing research on the global pandemic. The dataset has been enriched over the last 12 months as countries have started to collect more detailed information. It provides information on the total number of people that have contracted the virus so far, it also provides more detailed info such as the number of new cases/deaths reported each day, number of people that have been vaccinated in the population, etc. There are several data points where insights could be derived from, however our focus will be on number of new cases and deaths per million and how the vaccination roll out has affected these statistics for countries in Europe.
+
+## Stakeholders
+
+The audience of this data is the general European public or decision makers who classify themselves as 'anti-maskers' or 'anti-vaxxers'. 
+Changing someones view isn't necessarily an easy task. It takes concrete facts and willingness from the other party to understand a different point of view and change their behaviors. The phrase 'data doesn't lie' gets thrown around in the industry to showcase the power of facts. When a rational person is presented with truths that stem from facts, they tend to understand the other side a little bit better. 
+
+Our primary audience definitely have strong viewpoints, so the data will have to be presented in a easy to understand and factual manner. Many in the audience are frustrated with the constant lockdowns their governments impose as cases rise within a country. In this chicken and egg situation, cooperation from everyone by getting vaccinated is required to allow for life to go back to pre-COVID times -- however this is made difficult as a large number of the population either doesn't trust the manufactured vaccines or the science behind them.
+
+As evident by the civil unrest on the continent, European countries have particularly struggled with containing outbreaks. This can be due to several factors, one of the primary reasons is due to not being able to enforce a lockdown which everyone in the country follows. 
+
+Countries like the UK, Netherlands, Germany have seen protests throught the course of the pandemic where the public have come out in large numbers to push back against the lockdowns -- a counter intuitive activity as many people congregating in a small space increases the risk of the virus spreading further.
+
+Our message will focus on Europeans countries that have seen a large spike in the number of deaths per million. This will be complemented by showcasing the trend in new cases for the last 6 months and then enhanced by the vaccination rollout for the United Kinggdom. The UK has been one of the hardest hit countries in terms of number of deaths since the pandemic began -- however their vaccination rollout now claims to have vaccinated 46% (April 2021) of the population with atleast one dose of the vaccine. 
+
+## Big Idea
+
+Understanding how the vaccination rollout has helped the UK in bringing down new cases per million. 
+
+
+```{r data, include=FALSE}
+#use the floor_date function to create the new column from date
+covid$date <- as.Date(covid$date, format = "%Y-%m-%d")
+covid$year_month <- floor_date(covid$date,  # Create year-month column
+                                   "month")
+```
+
+``` {r euro, include=FALSE}
+con <- c('Europe')
+
+europe <- covid %>%
+  select(location, population, year_month, continent, new_cases_smoothed_per_million, new_deaths_smoothed_per_million) %>%
+  group_by(location) %>%
+  filter(continent %in% con, !is.na(new_deaths_smoothed_per_million), year_month > 01-09-2020) %>%
+  dplyr::summarize(
+    new_deaths = round(sum(new_deaths_smoothed_per_million),2),
+    pop = mean(population),
+    new_cases = round(sum(new_cases_smoothed_per_million), 2)
+    ) %>% 
+  as.data.frame()
+
+```
+
+
+```{r map, include=FALSE}
+
+#### code to obttain long/lat of all countries freferenced rom: https://egallic.fr/en/european-map-using-r/
+worldMap <- getMap()
+indEU <- which(worldMap$NAME %in% europe$location)
+
+# Extract longitude and latitude border's coordinates 
+europeCoords <- lapply(indEU, function(i){
+  df <- data.frame(worldMap@polygons[[i]]@Polygons[[1]]@coords)
+  df$region =as.character(worldMap$NAME[i])
+  colnames(df) <- list("long", "lat", "region")
+  return(df)
+})
+
+europeCoords <- do.call("rbind", europeCoords)
+##### end of referenced code snippet from: https://egallic.fr/en/european-map-using-r/
+
+europeanUnionTable <- data.frame(country = europe$location, value = europe$new_deaths, new_cases = europe$new_cases, pop = europe$pop)
+europeCoords$value <- europeanUnionTable$value[match(europeCoords$region,europeanUnionTable$country)]
+europeCoords$new_cases <- europeanUnionTable$new_cases[match(europeCoords$region,europeanUnionTable$country)]
+europeCoords$pop <- europeanUnionTable$pop[match(europeCoords$region,europeanUnionTable$country)]
+
+#aggregating data to make it easier to plot
+agg.data <- aggregate(cbind(long,lat, pop, value, new_cases) ~ region, data = europeCoords, mean)
+agg.data  <- agg.data[order(-agg.data$value),]
+
+```
+
+## Visualisation 1
+Focusing on Europe, the last 6 months of data is selected to avoid skewness in results towards the beginning of the pandemic -- where each countries cases and death spiked due to a lack of prepardness and planning. 
+
+I have chosen to overlay data from 'new deaths smoothed per million' on the map of Europe, this highlights the 10 countries with highest number of new deaths per million within the last six months.
+
+The dataset has been subset on countries that have a population of larger than 5,000,000. Since Covid-19 relies on human to human transmission, limiting our dataset to countries with a larger population can help with recognizing its affects through a larger sample size. The plot below shows countries such as the UK, France and Italy have been some of the hardest hit in terms of total deaths. 
+
+Choosing to represent new deaths on a map helps the audience understand how the virus is spreading across the continent. A correlation between countries and their neighbours can be seen where a country with a particularly high death rate has effected it's neighbor -- this can be seen through trio of Bulgaria, Poland and Slovakia, countries sharing a border -- and all having a high death rate.
+
+Graphs like this can help decision makers understand where the virus is entering into the country and implementing appropriate border control measures. 
+
+```{r plot_details, echo=FALSE}
+# Plot the map
+P <- ggplot() + geom_polygon(data = europeCoords, aes(x = long, y = lat, group = region, fill = value),
+                             colour = "black", size = 0.6) +
+  coord_map(xlim = c(-22, 60),  ylim = c(35, 71))
+
+P <- P + scale_fill_gradient(name = "New deaths per million", low = 'yellow', high = '#ff0000', na.value = "darkgrey")
+
+#add labels to the map
+labelsummary <- agg.data %>%
+  group_by(region) %>%
+  dplyr::filter(pop > 5000000 )
+  
+P + geom_label_repel(aes(x = long, y = lat, label = region),
+                   data= subset(labelsummary, value > value[11]),
+                   color = "black", 
+                   nudge_y = 3,
+                            segment.size  = 0.6,
+                            segment.color = "white"
+                           ) +
+  ggtitle(label = "Europe at a glance", subtitle = "New deaths per million (Oct 2020 - Apr 2021)")+
+  theme_dark()+
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank())
+
+```
+
+
+```{r agg, include=FALSE}
+
+data_aggr2 <- covid %>%
+  # Aggregate data
+  group_by(location, date) %>%
+  filter(continent %in% con, !is.na(new_cases_smoothed_per_million), !is.na(new_deaths_smoothed_per_million),
+         location %in% labelsummary$region[1:10] ) %>%
+  
+  dplyr::summarize(new_cases = round((log(new_cases_smoothed_per_million)),2), 
+                   new_deaths = round((log(new_deaths_smoothed_per_million)),2),
+                   vacs = people_vaccinated_per_hundred
+                   ) %>% 
+  as.data.frame()
+
+data_aggr2 <- data_aggr2 %>%
+  filter(date > '2020-09-30')
+
+```
+
+## Visualisation 2
+
+This visualization utilises the line plot to understand trends over the selected time period. The 'new cases per million' statistic is standardized through a logarithmic transformation to allow for a more intuitive trend analysis. 
+
+Majority of the countries seem to follow a similar trend from October 2020 to January 2021. Belgium is seen to have a higher number of cases but that averages down as December approaches.
+
+January 2021 onwards -- countries differ quite extensively in the number of new cases per million. Portugal, UK and Spain can be seen reaching their peeks in January as part of the second wave. Whereas countries like Bulgaria, seem to be handling the second wave better until another spike is witnessed from end of February 2021. 
+
+
+```{r graph 2, echo=FALSE}
+# Line plot with multiple groups
+L <- ggplot(data=data_aggr2, aes(y=new_cases, x=date, group=location, colour = location)) +
+  geom_line()+
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %y")+
+  guides(color=guide_legend(title="Countries"))+
+  ggtitle(label = "Number of cases per million by country", 
+          subtitle = 'Europes Top 10* (Oct 2020 - Apr 2021)')+
+  ylab("log(new cases per million)")+
+  theme_bw()+
+  theme(axis.title.x = element_blank(),
+          legend.position = "bottom",
+          plot.caption = element_text(color = "red", face = "italic"))+
+  labs(caption = "* countries with an overall population greater than 5 million")
+L
+
+
+```
+
+
+Out of the two visualisations, the line plot comparing the top 10 countries is going to be more effective in communicating our message. 
+
+Though the map in the first visualisation is intuitive, it only shows one part of the story. As countries fight against the pandemic, it's important to showcase which strategies are working better than others to allow for a more standardised approach to the management of the virus. 
+
+## Improving Visualisation 2
+
+By focusing on the UK, we can see if the vaccination rollout is affecting the number of new cases recorded each day. Through the use of de-cluttering, we highlight the trend line we are interested in. This helps the audience directly engage with statistics related to the UK, instead of trying to provide a complicated context paragraph which may not be as effective in communicating our idea. 
+
+Furthermore, the graph is enhanced with highlighting when the UK first crossed vaccinating 15% of their population through the implementation of a Dark Blue vertical line. You could argue the push for vaccinations could be due to the peak of new cases the UK faced after the 2020 holiday period in mid-January 2021. 
+Furthermore, a significant decline in new cases can be seen after February 2021 as the UK approaches vaccination rates of over 40% in mid-March 2021. 
+
+It is important to enrich the initial graph with more detail to provide our audience with a clear message of how vaccincations can affect number of cases in their countries. 
+The vertical line is there to help outline where the audience should direct their attention when considering the vaccination rollout and understanding it's effect on new cases. 
+
+The two green points help highlight the significant decline of new cases as the vaccination numbers increase -- this message is further re-enforced through the use of text labels highlighting the number of vaccinations implemented. 
+
+Finally, by outlining the 40% vaccination checkpoint, a steep decline in new cases can be witnessed in mid-March 2021 as the UK approaches a 50% vaccination rate. Even though the sample size for the last period is relatively small, the trend line is still able to highlight the advantages of adopting a swift vaccination rollout strategy. 
+
+```{r modified_plot, echo=FALSE}
+modded<- data_aggr2 %>%
+  mutate(loc2=location)
+
+modded %>%
+   mutate( highlight=ifelse(location=="United Kingdom", "United Kingdom", "Other")) %>%
+    ggplot( aes(x=date, y=new_cases, group=location, color=highlight)) +
+    geom_line(aes(size=location)) +
+    guides(size=FALSE, color=guide_legend(title="Country"))+
+    scale_size_manual(values = c(0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.5))+
+    scale_color_manual(values = c("lightgrey","darkred")) +
+    scale_x_date(date_breaks = "1 month", date_labels = "%b %y")+
+    scale_y_continuous(breaks = seq(2, 8, 1))+
+    ggtitle(label = "United Kingdom: new cases per million", subtitle = 'Oct 2020 - Apr 2021')+
+    ylab("log(new cases per million)")+
+  
+    annotate(geom="label", x=as.Date("2021-01-06"), y=7.2, 
+             label="Cases peaked in \nmid-Jan 2021 for the UK", size=3)+
+    geom_vline(xintercept=as.Date("2021-02-01"), color="darkblue", size=.5, alpha=0.8) +
+    annotate(geom="point", x =as.Date("2021-02-01"), y=5.89, size=1, color="green")+
+  
+    annotate(geom = "curve", x = as.Date("2021-02-25"), y = 5.95, xend = as.Date("2021-02-02"), yend = 5.9, 
+             curvature = .3, arrow = arrow(length = unit(2.5, "mm"))) +
+  
+    annotate(geom = "text", x = as.Date("2021-02-18"), y = 5.88, label = "Over 15% vaccinated", 
+             hjust = "left", size=2.5, color="darkblue", fontface=2)+
+  
+    annotate(geom="point", x =as.Date("2021-03-20"), y=4.38, size=1, color="green")+
+  
+    annotate(geom = "curve", x = as.Date("2021-02-20"), y = 4.25, xend = as.Date("2021-03-19"), yend = 4.36, 
+             curvature = .3, arrow = arrow(length = unit(2.5, "mm"))) +
+    annotate(geom = "text", x = as.Date("2021-03-07"), y = 4.38, label = "Over 40% vaccinated", 
+             hjust = "right", size=2.5, color="darkblue", fontface=2)+
+    theme_bw()+
+    theme(axis.title.x = element_blank(),
+          legend.position = "bottom")
+
+```
+```{r jwt, include=FALSE}
+vacs <- modded %>%
+  group_by(location) %>%
+  filter(!is.na(vacs), vacs > 5, location == "United Kingdom") %>%
+  top_n(1) %>%
+  as.data.frame()
+```
+
+In conclusion, our primary audience of European 'anti-maskers' and 'anti-vaxxers' from the general public and decision makers are taken through a high level journey of countries that have witnessed the worst in terms of new deaths per million over the last 6 months. 
+
+They are pointed towards an overall view of how countries with a population greater than 5 million are trending in terms of new cases recorded on a daily basis. 
+
+Finally, they witness the effect of a strategic and rigorous vaccine rollout which is being undertaken by the UK -- a country which had recorded over 120,000 COVID deaths since the beginning of the pandemic. 
+
+The above showcase should provide someone against vaccinations enough insight to unerstand the role they can play in controlling and managing the pandemic -- one of many steps we'll all need to take to go back to a nomral 'pre-covid' life. 
