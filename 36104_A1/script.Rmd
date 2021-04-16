@@ -1,10 +1,10 @@
 ---
-title: 'Assignment 1: Data Visualisation'
+title: 'UK COVID-19 vaccine roll-out'
 author: "Rohin Chhabra"
 date: "04/04/2021"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 ```{r packages, include=FALSE}
 #load packages
